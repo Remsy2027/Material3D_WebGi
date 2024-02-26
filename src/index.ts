@@ -10,6 +10,16 @@ import "./styles.css";
 // Ensure the viewer is set up after the DOM is fully loaded
 document.addEventListener('DOMContentLoaded', setupViewer);
 
+async function turnOffFloorLampLights(viewer: ViewerApp) {
+    const floorLampLights = viewer.scene.findObjectsByName("FloorLampLight");
+    floorLampLights.forEach(lampLight => {
+        // Attempt to directly manipulate known properties, visibility as a fallback
+        // This is pseudocode; adjust according to the actual API and properties
+        lampLight.visible = false; // Assuming visibility can be toggled
+        // If there's a method to directly turn off the light, use it here
+    });
+}
+
 async function setupViewer() {
     const canvas = document.getElementById('webgi-canvas') as HTMLCanvasElement;
     if (!canvas) {
@@ -56,6 +66,7 @@ async function setupViewer() {
             console.log(`Loading model: ${path}`);
             await viewer.load(path); // Load the model
         }
+        await turnOffFloorLampLights(viewer);
     } catch (error) {
         console.error("An error occurred while loading models:", error);
     } finally {
@@ -86,6 +97,8 @@ async function setDayEnvironment(viewer: ViewerApp) {
     if (spinner) showSpinner(spinner);
     try {
         await viewer.setEnvironmentMap("./assets/HDRi/day.hdr");
+        // Use 'findObjectsByName' and handle the result appropriately
+        await turnOffFloorLampLights(viewer);
         // Include any additional adjustments for the day environment here
     } catch (error) {
         console.error("Failed to set day environment:", error);
@@ -99,6 +112,10 @@ async function setNightEnvironment(viewer: ViewerApp) {
     if (spinner) showSpinner(spinner);
     try {
         await viewer.setEnvironmentMap("./assets/HDRi/night.hdr");
+        const floorLampLights = viewer.scene.findObjectsByName("FloorLampLight");
+        floorLampLights.forEach(lampLight => {
+            lampLight.visible = true; // Adjust based on actual API
+        });
         // Include any additional adjustments for the night environment here
     } catch (error) {
         console.error("Failed to set night environment:", error);
