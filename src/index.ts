@@ -4,50 +4,33 @@ import {
     FileTransferPlugin,
     CanvasSnipperPlugin,
     Vector3,
+    RepeatWrapping, ShaderMaterial, TextureLoader, UniformsUtils, DoubleSide,
 } from "webgi";
+import { SubsurfaceScatteringShader } from 'three/examples/jsm/shaders/SubsurfaceScatteringShader';
 import "./styles.css";
 
-// Ensure the viewer is set up after the DOM is fully loaded
+let specificObject: THREE.Object3D | undefined;
 document.addEventListener('DOMContentLoaded', setupViewer);
-
-async function turnOffFloorLampLights(viewer: ViewerApp) {
-    const floorLampLights = viewer.scene.findObjectsByName("FloorLampLight");
-    floorLampLights.forEach(lampLight => {
-        // Attempt to directly manipulate known properties, visibility as a fallback
-        // This is pseudocode; adjust according to the actual API and properties
-        lampLight.visible = false; // Assuming visibility can be toggled
-        // If there's a method to directly turn off the light, use it here
-    });
-}
 
 async function setupViewer() {
     const canvas = document.getElementById('webgi-canvas') as HTMLCanvasElement;
     if (!canvas) {
         console.error('Canvas element not found!');
-        return; // Exit the function if the canvas is not found
+        return;
     }
 
-    const viewer = new ViewerApp({
-        canvas: canvas,
-    });
-
-    // Add essential plugins
+    const viewer = new ViewerApp({ canvas });
     await addBasePlugins(viewer);
     await viewer.addPlugin(FileTransferPlugin);
     await viewer.addPlugin(CanvasSnipperPlugin);
-
-    // Set an initial environment map
     await viewer.setEnvironmentMap("./assets/HDRi/day.hdr");
 
     viewer.scene.activeCamera.position = new Vector3(-5, 2.5, 5);
     viewer.scene.activeCamera.target = new Vector3(0, 0.75, 0);
 
-    setupDayNightToggle(viewer);
-
     const spinner = document.getElementById('spinner');
-    showSpinner(document.getElementById('spinner')!);
+    if (spinner) showSpinner(spinner);
 
-    // Array of model paths
     const modelPaths = [
         "./assets/Models/Wall.glb",
         "./assets/Models/Floor.glb",
@@ -61,68 +44,107 @@ async function setupViewer() {
     ];
 
     try {
-        // Sequentially load each model
         for (const path of modelPaths) {
             console.log(`Loading model: ${path}`);
-            await viewer.load(path); // Load the model
+            await viewer.load(path);
         }
         await turnOffFloorLampLights(viewer);
     } catch (error) {
         console.error("An error occurred while loading models:", error);
     } finally {
-        hideSpinner(document.getElementById('spinner')!);
-    }
-}
-
-function setupDayNightToggle(viewer: ViewerApp) {
-    const toggle = document.querySelector('#dayNightToggle input[type="checkbox"]');
-    if (toggle instanceof HTMLInputElement) { // Checking if toggle is not null and is an HTMLInputElement
-        toggle.addEventListener('change', async (event) => {
-            // No need for the 'as HTMLInputElement' assertion here anymore
-            if (toggle.checked) {
-                // Day settings
-                await setDayEnvironment(viewer);
-            } else {
-                // Night settings
-                await setNightEnvironment(viewer);
-            }
-        });
-    } else {
-        console.error("Day/Night toggle switch not found!");
-    }
-}
-
-async function setDayEnvironment(viewer: ViewerApp) {
-    const spinner = document.getElementById('spinner'); // Ensure this matches your spinner's ID
-    if (spinner) showSpinner(spinner);
-    try {
-        await viewer.setEnvironmentMap("./assets/HDRi/day.hdr");
-        // Use 'findObjectsByName' and handle the result appropriately
-        await turnOffFloorLampLights(viewer);
-        // Include any additional adjustments for the day environment here
-    } catch (error) {
-        console.error("Failed to set day environment:", error);
-    } finally {
         if (spinner) hideSpinner(spinner);
     }
+
+    const spinnerElement = document.getElementById('spinner');
+    if (spinnerElement instanceof HTMLElement) {
+        setupDayNightToggle(viewer, spinnerElement); // Correctly typed as HTMLElement
+    } else {
+        console.error("Spinner element not found or is not correctly typed.");
+    }
 }
 
-async function setNightEnvironment(viewer: ViewerApp) {
-    const spinner = document.getElementById('spinner'); // Ensure this matches your spinner's ID
-    if (spinner) showSpinner(spinner);
+async function turnOffFloorLampLights(viewer: ViewerApp) {
+    const floorLampLights = viewer.scene.findObjectsByName("FloorLampLight");
+    floorLampLights.forEach(lampLight => lampLight.visible = false);
+}
+
+function setupDayNightToggle(viewer: ViewerApp, spinner: HTMLElement) {
+    const toggle = document.querySelector('#dayNightToggle input[type="checkbox"]') as HTMLInputElement;
+    if (!toggle) {
+        console.error("Day/Night toggle switch not found!");
+        return;
+    }
+
+    toggle.addEventListener('change', async () => {
+        if (spinner) showSpinner(spinner);
+        try {
+            if (toggle.checked) {
+                await setDayEnvironment(viewer, spinner);
+            } else {
+                await setNightEnvironment(viewer, spinner);
+            }
+        } finally {
+            if (spinner) hideSpinner(spinner);
+        }
+    });
+}
+
+async function setDayEnvironment(viewer: ViewerApp, spinner: HTMLElement) {
+    try {
+        await viewer.setEnvironmentMap("./assets/HDRi/day.hdr");
+        await turnOffFloorLampLights(viewer);
+    } catch (error) {
+        console.error("Failed to set day environment:", error);
+    }
+}
+
+async function setNightEnvironment(viewer: ViewerApp, spinner: HTMLElement) {
     try {
         await viewer.setEnvironmentMap("./assets/HDRi/night.hdr");
         const floorLampLights = viewer.scene.findObjectsByName("FloorLampLight");
-        floorLampLights.forEach(lampLight => {
-            lampLight.visible = true; // Adjust based on actual API
-        });
-        // Include any additional adjustments for the night environment here
+        floorLampLights.forEach(lampLight => lampLight.visible = true);
     } catch (error) {
         console.error("Failed to set night environment:", error);
-    } finally {
-        if (spinner) hideSpinner(spinner);
     }
 }
+
+function createSubsurfaceMaterial() {
+    const texLoader = new TextureLoader();
+    const subTexture = texLoader.load('./assets/Texture/Subsurface.jpg');
+    subTexture.wrapS = subTexture.wrapT = RepeatWrapping;
+    subTexture.repeat.set(4, 4);
+
+    const shader = SubsurfaceScatteringShader;
+    const uniforms = UniformsUtils.clone(shader.uniforms);
+
+    uniforms['diffuse'].value = new Vector3(0.9, 0.7, 0.5);
+    uniforms['shininess'].value = 10;
+    uniforms['thicknessMap'].value = subTexture;
+    uniforms['thicknessColor'].value = new Vector3(0.560784, 0.266667, 0.054902);
+    uniforms['thicknessDistortion'].value = 0.1;
+    uniforms['thicknessAmbient'].value = 0.4;
+    uniforms['thicknessAttenuation'].value = 0.7;
+    uniforms['thicknessPower'].value = 10.0;
+    uniforms['thicknessScale'].value = 1;
+
+    return new ShaderMaterial({
+        uniforms: uniforms,
+        vertexShader: shader.vertexShader,
+        fragmentShader: shader.fragmentShader,
+        lights: true,
+        side: DoubleSide,
+    });
+}
+
+function replaceMaterial(model: THREE.Object3D, materialName: string, newMaterial: THREE.Material) {
+    model.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh && child.name === materialName) {
+            (child as THREE.Mesh).material = newMaterial;
+        }
+    });
+}
+
+const subsurfaceScatteringMaterial = createSubsurfaceMaterial();
 
 function showSpinner(spinner: HTMLElement): void {
     spinner.style.display = 'block';
@@ -131,4 +153,3 @@ function showSpinner(spinner: HTMLElement): void {
 function hideSpinner(spinner: HTMLElement): void {
     spinner.style.display = 'none';
 }
-
